@@ -90,9 +90,6 @@ def close_gently(conn):
     what the client still sends, up to a limit, before the caller closes.
     nginx calls this a lingering close.
     """
-    # Stop sending, but keep reading so we can empty the buffer before close.
-    # Closing with unread data makes the kernel send a reset, and the client
-    # can lose our 400 before reading it.
     conn.shutdown(socket.SHUT_WR)
     conn.settimeout(1)
     discarded = 0
