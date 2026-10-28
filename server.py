@@ -1,8 +1,10 @@
 """The server: socket, bind, listen, accept, read, respond."""
 
 import socket
+import traceback
 
 from tinyhttp.request import BadRequest, body_length, parse_head
+from tinyhttp.wsgi import build_environ, get_response
 
 HOST = ""     # Every network interface, so other machines can reach it too.
 PORT = 8000
@@ -13,7 +15,8 @@ PORT = 8000
 MAX_HEAD_SIZE = 8192
 
 
-def main():
+def main(app):
+    """Serve the WSGI app on PORT, one connection at a time, for ever."""
     # AF_INET is IPv4 and SOCK_STREAM is TCP: a reliable stream of bytes.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         # Without this, restarting soon after stopping fails with "Address
@@ -30,10 +33,10 @@ def main():
             # talking to that one client. The listener keeps listening.
             conn, address = listener.accept()
             with conn:
-                handle(conn, address)
+                handle(conn, address, app)
 
 
-def handle(conn, address):
+def handle(conn, address, app):
     client = f"{address[0]}:{address[1]}"
     try:
         received = read_head(conn)
@@ -45,7 +48,7 @@ def handle(conn, address):
         length = body_length(request.headers)
     except BadRequest as error:
         log(client, f"400 ({error})")
-        conn.sendall(make_response("400 Bad Request", f"{error}\n"))
+        conn.sendall(error_response("400 Bad Request", str(error)))
         close_gently(conn)
         return
 
@@ -55,8 +58,21 @@ def handle(conn, address):
         return
     request.body = body
 
-    log(client, f"{request.method} {request.path}")
-    conn.sendall(make_response("200 OK", describe(request)))
+    try:
+        environ = build_environ(request, conn.getsockname(), address)
+        status, headers, body = get_response(app, environ)
+        response = make_response(status, headers, body)
+    except Exception:
+        # A bug in the app mustn't stop the server: log it, answer 500, and
+        # carry on with the next connection.
+        log(client, f"{request.method} {request.path} 500, the app failed:")
+        traceback.print_exc()
+        conn.sendall(error_response("500 Internal Server Error",
+                                    "internal server error"))
+        return
+
+    log(client, f"{request.method} {request.path} {status.split(' ')[0]}")
+    conn.sendall(response)
 
 
 def read_head(conn):
@@ -127,35 +143,30 @@ def close_gently(conn):
         pass
 
 
-def describe(request):
-    # Temporary, until WSGI hands requests to an app: shows what we read.
-    lines = [
-        f"method:  {request.method}",
-        f"path:    {request.path}",
-        f"query:   {request.query}",
-        f"version: {request.version}",
-        "headers:",
-    ]
-    lines += [f"  {name}: {value}" for name, value in request.headers.items()]
-    lines.append(f"body:    {len(request.body)} bytes")
-    if request.body:
-        lines.append(f"  {request.body[:100]!r}")
-    return "\n".join(lines) + "\n"
+def make_response(status, headers, body):
+    """Build a whole response as bytes.
 
-
-def make_response(status, body):
-    """Build a whole response as bytes, from a status such as "200 OK"."""
-    body = body.encode("utf-8")
+    status is such as "200 OK", headers a list of (name, value) pairs, and
+    body bytes. Content-Length and Connection are the server's to set, so
+    any the app gave are replaced.
+    """
+    lines = [f"HTTP/1.1 {status}"]
+    for name, value in headers:
+        if name.lower() not in ("content-length", "connection"):
+            lines.append(f"{name}: {value}")
+    # Content-Length counts bytes, not characters.
+    lines.append(f"Content-Length: {len(body)}")
+    lines.append("Connection: close")
     # Lines end in \r\n, as HTTP requires, and a blank line separates the
-    # headers from the body. Content-Length counts bytes, not characters.
-    head = (
-        f"HTTP/1.1 {status}\r\n"
-        f"Content-Type: text/plain; charset=utf-8\r\n"
-        f"Content-Length: {len(body)}\r\n"
-        f"Connection: close\r\n"
-        f"\r\n"
-    )
+    # headers from the body. The PEP says header text is latin-1.
+    head = "\r\n".join(lines) + "\r\n\r\n"
     return head.encode("latin-1") + body
+
+
+def error_response(status, message):
+    """A plain-text response for the server's own errors, such as a 400."""
+    headers = [("Content-Type", "text/plain; charset=utf-8")]
+    return make_response(status, headers, f"{message}\n".encode("utf-8"))
 
 
 def log(client, message):
