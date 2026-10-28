@@ -2,7 +2,7 @@
 
 import socket
 
-from tinyhttp.request import BadRequest, parse_head
+from tinyhttp.request import BadRequest, body_length, parse_head
 
 HOST = ""     # Every network interface, so other machines can reach it too.
 PORT = 8000
@@ -36,16 +36,24 @@ def main():
 def handle(conn, address):
     client = f"{address[0]}:{address[1]}"
     try:
-        head = read_head(conn)
-        if head is None:
+        received = read_head(conn)
+        if received is None:
             log(client, "closed before sending a request")
             return
+        head, rest = received
         request = parse_head(head)
+        length = body_length(request.headers)
     except BadRequest as error:
         log(client, f"400 ({error})")
         conn.sendall(make_response("400 Bad Request", f"{error}\n"))
         close_gently(conn)
         return
+
+    body = read_body(conn, rest, length)
+    if body is None:
+        log(client, "closed before sending the whole body")
+        return
+    request.body = body
 
     log(client, f"{request.method} {request.path}")
     conn.sendall(make_response("200 OK", describe(request)))
@@ -54,17 +62,18 @@ def handle(conn, address):
 def read_head(conn):
     """Read the request line and headers: everything up to the blank line.
 
-    Returns them as bytes, without the blank line, or None if the client
-    closed the connection first. Raises BadRequest if they don't fit in
-    MAX_HEAD_SIZE.
+    Returns (head, rest): the head as bytes, without the blank line, and
+    any bytes that came after it, which are the start of the body. Returns
+    None if the client closed the connection first. Raises BadRequest if
+    the head doesn't fit in MAX_HEAD_SIZE.
     """
     buffer = b""
     while True:
         end = buffer.find(b"\r\n\r\n")
         if end != -1 and end + 4 <= MAX_HEAD_SIZE:
-            # Any bytes after the blank line are the start of the body,
-            # which nothing reads until requests can have one.
-            return buffer[:end]
+            # A recv can take the head and the start of the body together,
+            # so hand back what's past the blank line for read_body.
+            return buffer[:end], buffer[end + 4:]
         # Either there's no blank line yet and no room left for one, or
         # there is one but it ends past the limit.
         if len(buffer) >= MAX_HEAD_SIZE:
@@ -77,6 +86,22 @@ def read_head(conn):
             # use, and there's no one left to send an error to.
             return None
         buffer += chunk
+
+
+def read_body(conn, rest, length):
+    """Read a body of length bytes, starting with rest from read_head.
+
+    Returns the body, or None if the client closed the connection first.
+    """
+    body = rest
+    while len(body) < length:
+        chunk = conn.recv(4096)
+        if not chunk:
+            return None
+        body += chunk
+    # Anything past length would be a second request on this connection,
+    # which "Connection: close" tells the client not to send.
+    return body[:length]
 
 
 def close_gently(conn):
@@ -103,7 +128,7 @@ def close_gently(conn):
 
 
 def describe(request):
-    # Temporary, until part 5 routes requests: shows what the parser saw.
+    # Temporary, until WSGI hands requests to an app: shows what we read.
     lines = [
         f"method:  {request.method}",
         f"path:    {request.path}",
@@ -112,6 +137,9 @@ def describe(request):
         "headers:",
     ]
     lines += [f"  {name}: {value}" for name, value in request.headers.items()]
+    lines.append(f"body:    {len(request.body)} bytes")
+    if request.body:
+        lines.append(f"  {request.body[:100]!r}")
     return "\n".join(lines) + "\n"
 
 

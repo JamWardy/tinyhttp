@@ -7,6 +7,11 @@ from dataclasses import dataclass
 
 VERSIONS = ("HTTP/1.0", "HTTP/1.1")
 
+# The longest body we'll accept, as nginx's client_max_body_size defaults
+# to. The shop's forms and queries are far smaller, and without a limit a
+# client could make us hold any amount in memory.
+MAX_BODY_SIZE = 1024 * 1024
+
 
 class BadRequest(Exception):
     """The client sent something we can't treat as an HTTP request."""
@@ -19,6 +24,7 @@ class Request:
     query: str      # "page=2", the part after "?", or "" if there isn't one
     version: str    # "HTTP/1.1"
     headers: dict   # Names lowercased: {"host": "localhost:8000"}
+    body: bytes = b""   # Filled in by the server once it's read
 
 
 def parse_head(head):
@@ -41,6 +47,32 @@ def parse_head(head):
     if version == "HTTP/1.1" and "host" not in headers:
         raise BadRequest("HTTP/1.1 request without a Host header")
     return Request(method, path, query, version, headers)
+
+
+def body_length(headers):
+    """How many bytes of body follow the head, from Content-Length.
+
+    Returns 0 if there's no body. Raises BadRequest for a chunked body, a
+    Content-Length that isn't a plain number, or one over MAX_BODY_SIZE.
+    """
+    # Chunked bodies come in pieces, each with its own size, instead of one
+    # length up front. Not supported; see Known gaps in TODO.md.
+    if "transfer-encoding" in headers:
+        raise BadRequest("chunked bodies aren't supported")
+
+    value = headers.get("content-length")
+    if value is None:
+        return 0
+    # Digits only: no sign or spaces, and not "5, 5" from two headers. Two
+    # lengths could make us and a proxy disagree about where the body ends.
+    if not (value.isascii() and value.isdigit()):
+        raise BadRequest(f"bad Content-Length {value!r}")
+    length = int(value)
+    # Checked before reading anything, so a client can't make us read a
+    # body we'll refuse.
+    if length > MAX_BODY_SIZE:
+        raise BadRequest(f"body longer than {MAX_BODY_SIZE} bytes")
+    return length
 
 
 def parse_request_line(line):
