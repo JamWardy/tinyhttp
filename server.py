@@ -2,6 +2,8 @@
 
 import socket
 
+from tinyhttp.request import BadRequest, parse_head
+
 HOST = ""     # Every network interface, so other machines can reach it too.
 PORT = 8000
 
@@ -9,10 +11,6 @@ PORT = 8000
 # included. Without a limit, a client could send headers forever and we'd
 # keep them all in memory. gunicorn's limits come to about the same.
 MAX_HEAD_SIZE = 8192
-
-
-class BadRequest(Exception):
-    """The client sent something we can't treat as an HTTP request."""
 
 
 def main():
@@ -39,18 +37,18 @@ def handle(conn, address):
     client = f"{address[0]}:{address[1]}"
     try:
         head = read_head(conn)
+        if head is None:
+            log(client, "closed before sending a request")
+            return
+        request = parse_head(head)
     except BadRequest as error:
         log(client, f"400 ({error})")
         conn.sendall(make_response("400 Bad Request", f"{error}\n"))
         close_gently(conn)
         return
-    if head is None:
-        log(client, "closed before sending a request")
-        return
 
-    first_line = head.split(b"\r\n", 1)[0].decode("latin-1")
-    log(client, first_line)
-    conn.sendall(make_response("200 OK", "hello from tinyhttp\n"))
+    log(client, f"{request.method} {request.path}")
+    conn.sendall(make_response("200 OK", describe(request)))
 
 
 def read_head(conn):
@@ -102,6 +100,19 @@ def close_gently(conn):
     except OSError:
         # Timed out or reset: the client had its chance.
         pass
+
+
+def describe(request):
+    # Temporary, until part 5 routes requests: shows what the parser saw.
+    lines = [
+        f"method:  {request.method}",
+        f"path:    {request.path}",
+        f"query:   {request.query}",
+        f"version: {request.version}",
+        "headers:",
+    ]
+    lines += [f"  {name}: {value}" for name, value in request.headers.items()]
+    return "\n".join(lines) + "\n"
 
 
 def make_response(status, body):
