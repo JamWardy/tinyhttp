@@ -1,13 +1,15 @@
 """Lets `python -m tinyhttp` start the server, run from the folder above.
 
-`python -m tinyhttp shop:app` runs the WSGI app called `app` in the module
-`shop`, as gunicorn does. With no app named, it runs `tinyhttp.echo:app`.
+`python -m tinyhttp --port 8001 shop:app` runs the WSGI app called `app` in
+the module `shop` on port 8001, as gunicorn does. With no port it uses
+8000, and with no app named it runs `tinyhttp.echo:app`.
 """
 
+import argparse
 import importlib
 import sys
 
-from tinyhttp.server import main
+from tinyhttp.server import PORT, main
 
 
 def load_app(spec):
@@ -19,6 +21,17 @@ def load_app(spec):
     return getattr(module, name)
 
 
-if len(sys.argv) > 2:
-    sys.exit("usage: python -m tinyhttp [module:name]")
-main(load_app(sys.argv[1] if len(sys.argv) == 2 else "tinyhttp.echo:app"))
+def port_number(text):
+    """The --port value: a whole number from 1 to 65535."""
+    if not (text.isascii() and text.isdigit()) or not 1 <= int(text) <= 65535:
+        raise argparse.ArgumentTypeError(f"expected 1 to 65535, not {text!r}")
+    return int(text)
+
+
+parser = argparse.ArgumentParser(prog="python -m tinyhttp")
+parser.add_argument("app", nargs="?", default="tinyhttp.echo:app",
+                    help="the WSGI app, as module:name (default: %(default)s)")
+parser.add_argument("--port", type=port_number, default=PORT,
+                    help="the port to listen on (default: %(default)s)")
+args = parser.parse_args()
+main(load_app(args.app), args.port)

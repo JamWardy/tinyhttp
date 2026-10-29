@@ -39,12 +39,21 @@ part. Write it with `socket`.
       `python -m tinyhttp module:name` picks the app, as gunicorn does;
       with none named it runs `echo.py`, which replies with what it was
       given. Test it with the webapp once it exists
-- [ ] Part 3: pick the port, as gunicorn's `-b` does:
+- [x] Part 3: pick the port, as gunicorn's `-b` does:
       `python -m tinyhttp --port 8001 module:name`, with 8000 when none is
       given. `main` takes the port instead of reading `PORT`. Needed by
       the tests in `../tinyAmazonTest/`, so they don't clash with a
       server already on 8000, and by step 5's load balancer, which runs
-      two servers, on `:8001` and `:8002`
+      two servers, on `:8001` and `:8002`. Decided while building it:
+  - `argparse` reads the command line, as gunicorn's does: reading
+    arguments isn't the server's job, and it gives `--help` and usage
+    errors. The port and app go in either order
+  - A port that isn't a number from 1 to 65535 is a usage error. No
+    port `0` for "any free one": the tests pick a free port themselves
+  - A port already in use exits with one line saying so, not a
+    traceback, as it's likely with several servers running
+  - The port only, not the host as `-b` takes too: it still listens on
+    every interface
 
 ## Known gaps
 
