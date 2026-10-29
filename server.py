@@ -33,6 +33,8 @@ def main(app, port=PORT):
         # The kernel queues up to this many connections that have finished
         # the TCP handshake but that we haven't accepted yet.
         listener.listen(16)
+        # The port it really got, which port 0 leaves to the system.
+        port = listener.getsockname()[1]
         print(f"tinyhttp: listening on http://localhost:{port}", flush=True)
 
         while True:

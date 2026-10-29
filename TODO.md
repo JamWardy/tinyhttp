@@ -48,8 +48,9 @@ part. Write it with `socket`.
   - `argparse` reads the command line, as gunicorn's does: reading
     arguments isn't the server's job, and it gives `--help` and usage
     errors. The port and app go in either order
-  - A port that isn't a number from 1 to 65535 is a usage error. No
-    port `0` for "any free one": the tests pick a free port themselves
+  - A port that isn't a number from 0 to 65535 is a usage error. Port
+    `0` means any free one, as with gunicorn's `-b :0`, and the server
+    prints the port it got
   - A port already in use exits with one line saying so, not a
     traceback, as it's likely with several servers running
   - The port only, not the host as `-b` takes too: it still listens on

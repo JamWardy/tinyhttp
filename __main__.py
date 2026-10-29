@@ -22,9 +22,9 @@ def load_app(spec):
 
 
 def port_number(text):
-    """The --port value: a whole number from 1 to 65535."""
-    if not (text.isascii() and text.isdigit()) or not 1 <= int(text) <= 65535:
-        raise argparse.ArgumentTypeError(f"expected 1 to 65535, not {text!r}")
+    """The --port value: a whole number from 0 to 65535, 0 for any free one."""
+    if not (text.isascii() and text.isdigit()) or not 0 <= int(text) <= 65535:
+        raise argparse.ArgumentTypeError(f"expected 0 to 65535, not {text!r}")
     return int(text)
 
 
@@ -32,6 +32,7 @@ parser = argparse.ArgumentParser(prog="python -m tinyhttp")
 parser.add_argument("app", nargs="?", default="tinyhttp.echo:app",
                     help="the WSGI app, as module:name (default: %(default)s)")
 parser.add_argument("--port", type=port_number, default=PORT,
-                    help="the port to listen on (default: %(default)s)")
+                    help="the port to listen on, 0 for any free one "
+                         "(default: %(default)s)")
 args = parser.parse_args()
 main(load_app(args.app), args.port)
