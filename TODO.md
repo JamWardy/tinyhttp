@@ -7,6 +7,15 @@ breaks tinyhttp's share of them into parts and tracks known gaps.
 Related notes: [PRE_FORK.md](PRE_FORK.md) for why one connection at a
 time breaks, and how pre-fork workers fix most of it.
 
+Python's standard library only. gunicorn and Flask are never imported,
+called or run from this repo, tests included; they're for testing only,
+in `../tinyAmazonTest/`. See the rules in `../tinyAmazonTest/TODO.md`.
+
+No shortcuts from the standard library either. `http.server`,
+`socketserver` and `wsgiref` already do this repo's job, from reading a
+request to calling the app, so none of them are used here, not even in
+part. Write it with `socket`.
+
 ## Step 1: the web server, up and running
 
 - [x] Part 1: the package, so `python -m tinyhttp` starts it
@@ -30,6 +39,12 @@ time breaks, and how pre-fork workers fix most of it.
       `python -m tinyhttp module:name` picks the app, as gunicorn does;
       with none named it runs `echo.py`, which replies with what it was
       given. Test it with the webapp once it exists
+- [ ] Part 3: pick the port, as gunicorn's `-b` does:
+      `python -m tinyhttp --port 8001 module:name`, with 8000 when none is
+      given. `main` takes the port instead of reading `PORT`. Needed by
+      the tests in `../tinyAmazonTest/`, so they don't clash with a
+      server already on 8000, and by step 5's load balancer, which runs
+      two servers, on `:8001` and `:8002`
 
 ## Known gaps
 
@@ -62,6 +77,15 @@ the plan needs these.
     closing the connection, as HTTP/1.0 did. So a large or slow
     response waits in memory until it's done, where gunicorn would
     stream it. Fine for pages and small JSON.
+- [ ] A `304 Not Modified` gets `Content-Length: 0`, as `make_response`
+      adds one to every reply. The standard says a `304` either leaves
+      it out or gives the length the full reply would have had.
+      Browsers ignore it, since a `304` never has a body.
+- [ ] No `Date` header. The standard says a server with a clock must
+      send one, the time of the reply in GMT, such as `Date: Thu, 29
+      Oct 2026 16:00:00 GMT`; caches use it to work out a reply's age.
+      `make_response` would add it, as it does `Content-Length`.
+      Browsers cope without it.
 - [ ] Replies to `HEAD` include the body. The server treats every
       method the same, but HTTP says a `HEAD` reply has the headers a
       `GET` would get and no body. gunicorn drops the body itself, since
