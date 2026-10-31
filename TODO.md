@@ -56,6 +56,13 @@ part. Write it with `socket`.
   - The port only, not the host as `-b` takes too: it still listens on
     every interface
 
+## Step 4: what the shop's services need
+
+- [ ] Part 1: pick the address to listen on, as gunicorn's `-b` takes
+      a host: `python -m tinyhttp --host 127.0.0.1 --port 8001
+      module:name`. With none given it listens on every interface, as
+      now. The services listen on `127.0.0.1` only (see `../DESIGN.md`)
+
 ## Known gaps
 
 Follow-ups, nice to have. tinyhttp is a simple server to learn from, so
