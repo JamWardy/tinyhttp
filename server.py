@@ -17,25 +17,30 @@ PORT = 8000
 MAX_HEAD_SIZE = 8192
 
 
-def main(app, port=PORT):
-    """Serve the WSGI app on port, one connection at a time, for ever."""
+def main(app, port=PORT, host=HOST):
+    """Serve the WSGI app on host and port, one connection at a time, for ever.
+
+    host is an address such as "127.0.0.1", or "" for every interface.
+    """
     # AF_INET is IPv4 and SOCK_STREAM is TCP: a reliable stream of bytes.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         # Without this, restarting soon after stopping fails with "Address
         # already in use", while the old connections wait out TIME_WAIT.
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            listener.bind((HOST, port))
+            listener.bind((host, port))
         except OSError as error:
-            if error.errno != errno.EADDRINUSE:
-                raise
-            sys.exit(f"tinyhttp: port {port} is already in use")
+            if error.errno == errno.EADDRINUSE:
+                sys.exit(f"tinyhttp: port {port} is already in use")
+            # Such as a host that isn't one of this machine's addresses.
+            sys.exit(f"tinyhttp: can't listen on {host}:{port}: {error}")
         # The kernel queues up to this many connections that have finished
         # the TCP handshake but that we haven't accepted yet.
         listener.listen(16)
         # The port it really got, which port 0 leaves to the system.
         port = listener.getsockname()[1]
-        print(f"tinyhttp: listening on http://localhost:{port}", flush=True)
+        print(f"tinyhttp: listening on http://{host or 'localhost'}:{port}",
+              flush=True)
 
         while True:
             # Blocks until a client connects, then returns a new socket for

@@ -1,7 +1,8 @@
 """Lets `python -m tinyhttp` start the server, run from the folder above.
 
-`python -m tinyhttp --port 8001 shop:app` runs the WSGI app called `app` in
-the module `shop` on port 8001, as gunicorn does. With no port it uses
+`python -m tinyhttp --host 127.0.0.1 --port 8001 shop:app` runs the WSGI
+app called `app` in the module `shop` on 127.0.0.1, port 8001, as gunicorn
+does. With no host it listens on every interface, with no port it uses
 8000, and with no app named it runs `tinyhttp.echo:app`.
 """
 
@@ -9,7 +10,7 @@ import argparse
 import importlib
 import sys
 
-from tinyhttp.server import PORT, main
+from tinyhttp.server import HOST, PORT, main
 
 
 def load_app(spec):
@@ -34,5 +35,8 @@ parser.add_argument("app", nargs="?", default="tinyhttp.echo:app",
 parser.add_argument("--port", type=port_number, default=PORT,
                     help="the port to listen on, 0 for any free one "
                          "(default: %(default)s)")
+parser.add_argument("--host", default=HOST,
+                    help="the address to listen on, such as 127.0.0.1 "
+                         "(default: every interface)")
 args = parser.parse_args()
-main(load_app(args.app), args.port)
+main(load_app(args.app), args.port, args.host)
