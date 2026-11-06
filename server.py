@@ -95,15 +95,22 @@ def serve(conn, address, app, kept, may_keep):
     can stay open after this one. Returns True to keep it open.
     """
     rest = b""
-    while True:
-        rest = handle(conn, address, app, rest, kept, may_keep)
-        if rest is None:
-            return False
-        if not rest:
-            return True
-        # The client sent its next request before this reply. Those bytes
-        # are already read, so select() won't report them: serve them now.
-        kept = True
+    try:
+        while True:
+            rest = handle(conn, address, app, rest, kept, may_keep)
+            if rest is None:
+                return False
+            if not rest:
+                return True
+            # The client sent its next request before this reply. Those
+            # bytes are already read, so select() won't report them: serve
+            # them now.
+            kept = True
+    except OSError as error:
+        # Such as a reset, or a reply to a client that's gone. Only this
+        # connection is lost, not the server and every idle one with it.
+        log(f"{address[0]}:{address[1]}", f"connection failed ({error})")
+        return False
 
 
 def handle(conn, address, app, rest, kept, may_keep):
