@@ -4,8 +4,9 @@ What tinyhttp needs, step by step. The steps are the ones in
 `../TODO.md`, which has the plan for the whole project; this file
 breaks tinyhttp's share of them into parts and tracks known gaps.
 
-Related notes: [PRE_FORK.md](PRE_FORK.md) for why one connection at a
-time breaks, and how pre-fork workers fix most of it.
+How it works is in [DESIGN.md](DESIGN.md). Related notes:
+[PRE_FORK.md](PRE_FORK.md) for why one connection at a time breaks, and
+how pre-fork workers fix most of it.
 
 Python's standard library only. gunicorn and Flask are never imported,
 called or run from this repo, tests included; they're for testing only,
@@ -63,6 +64,12 @@ part. Write it with `socket`.
       module:name`. With none given it listens on every interface, as
       now. The services listen on `127.0.0.1` only (see `../DESIGN.md`)
 
+## Step 8: what tinyproxy's stage 5 needs
+
+- [x] Part 1: keep-alive, as `DESIGN.md` describes: the `select()` loop
+      over idle connections, `--keep-alive`, and `HEAD` replies without
+      their body
+
 ## Known gaps
 
 Follow-ups, nice to have. tinyhttp is a simple server to learn from, so
@@ -103,10 +110,6 @@ the plan needs these.
       Oct 2026 16:00:00 GMT`; caches use it to work out a reply's age.
       `make_response` would add it, as it does `Content-Length`.
       Browsers cope without it.
-- [ ] Replies to `HEAD` include the body. The server treats every
-      method the same, but HTTP says a `HEAD` reply has the headers a
-      `GET` would get and no body. gunicorn drops the body itself, since
-      apps such as Flask build it anyway.
 - [ ] `Expect: 100-continue` is ignored. curl sends it for bodies over
       1 MB and waits a second for `100 Continue` before sending the body
       anyway. Nothing in the plan sends bodies that big (no uploads, and

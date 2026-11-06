@@ -75,6 +75,20 @@ def body_length(headers):
     return length
 
 
+def keep_alive(request):
+    """Whether the client wants the connection kept for its next request.
+
+    HTTP/1.1 keeps it unless Connection says close; HTTP/1.0 closes it
+    unless Connection says keep-alive.
+    """
+    # A comma list, such as "keep-alive, Upgrade".
+    tokens = {token.strip(" \t").lower()
+              for token in request.headers.get("connection", "").split(",")}
+    if request.version == "HTTP/1.1":
+        return "close" not in tokens
+    return "keep-alive" in tokens
+
+
 def parse_request_line(line):
     """Split "GET /products?page=2 HTTP/1.1" into its four parts."""
     parts = line.split(" ")
