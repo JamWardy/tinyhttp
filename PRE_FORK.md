@@ -1,7 +1,7 @@
-# One connection at a time vs pre-fork workers
+# One request at a time vs pre-fork workers
 
-tinyhttp's server (`server.py`) handles one connection at a time, in
-one process. gunicorn, by default, runs several worker processes forked
+tinyhttp's server (`server.py`) handles one request at a time, in one
+process. gunicorn, by default, runs several worker processes forked
 from one master. This note says what goes wrong with one at a time, how
 pre-forking fixes most of it, and what it leaves for later.
 
@@ -11,14 +11,18 @@ pre-forking fixes most of it, and what it leaves for later.
 
 ```python
 while True:
-    conn, address = listener.accept()   # wait for a client
-    with conn:
-        handle(conn, address)           # read, reply, close
+    readable = select([listener, *idle])  # a new client, or a kept one
+    for conn in readable:                 #   with its next request
+        if conn is listener:
+            conn = listener.accept()
+        serve(conn)                       # read, reply, keep or close
 ```
 
-While it's in `handle`, nothing calls `accept()`. New clients still
-connect, because the kernel finishes their handshake and queues them on
-the listener, but they wait in that queue until `handle` returns.
+An idle kept-alive connection waits in `select()` and holds no one
+(see `DESIGN.md`). But while it's in `serve`, nothing else runs. New
+clients still connect, because the kernel finishes their handshake and
+queues them on the listener, but they wait in that queue until `serve`
+returns.
 
 That's fine while every client sends its request at once. It breaks when
 one doesn't:
@@ -29,7 +33,7 @@ one doesn't:
 4. Ctrl-C the `nc`, and the curl finishes at once.
 
 The server is stuck in `recv` in `read_head`, waiting for bytes `nc`
-never sends. One idle connection costs the client nothing and stops the
+never sends, as a new connection is served at once. One idle connection costs the client nothing and stops the
 whole server. Opening many slow connections on purpose is the Slowloris
 attack (2009).
 
@@ -43,17 +47,19 @@ master    socket(), bind(), listen(), then fork() × 4
           then only watches the workers: restarts any that die or hang
 
 worker 1 ─┐
-worker 2 ─┤  each runs the loop above:
-worker 3 ─┤    while True: conn = listener.accept(); handle(conn)
+worker 2 ─┤  each runs the loop above, on the listener
+worker 3 ─┤  they share, with its own idle connections
 worker 4 ─┘
 ```
 
 - **`fork()` copies the whole process**, open sockets included. Every
   worker inherits the same listener, so all of them can `accept()` on
   it.
-- **The kernel gives each connection to one worker that's waiting in
-  `accept()`**, so a free worker. One stuck in `recv` for a slow client
-  isn't waiting, so it gets nothing new.
+- **A new connection goes to a free worker.** Every worker waiting in
+  `select()` is told the listener is readable, and the first to call
+  `accept()` gets the connection, so the listener has to be
+  non-blocking for the rest to find nothing and carry on. One stuck in
+  `recv` for a slow client isn't waiting, so it gets nothing new.
 - **The master never handles requests.** gunicorn's master also kills
   a worker that's been silent longer than `--timeout` (30 seconds by
   default) and starts a fresh one, so a stuck worker comes back.
@@ -63,19 +69,19 @@ worker 4 ─┘
   the rest. The cost is memory, though `fork()` shares the copied pages
   until one side writes to them (copy-on-write).
 
-`handle` and the loop don't change. What changes is how many processes
+`serve` and the loop don't change. What changes is how many processes
 run them.
 
 ## Side by side
 
-| | One at a time | Pre-fork, N workers |
+| | One request at a time | Pre-fork, N workers |
 |---|---|---|
 | Requests handled at once | 1 | N |
 | Slow clients to stop everyone | 1 | N |
 | Uses more than one CPU core | No | Yes |
-| A crash in `handle` | Stops the server | Stops one worker; the master starts another |
+| A crash in `serve` | Stops the server | Stops one worker; the master starts another |
 | Memory | One process | N processes, sharing pages until written |
-| Code | The loop in `main` | The same loop, plus a master that forks and watches |
+| Code | The loop in `main` | The same loop in each worker, plus a master that forks and watches |
 
 ## What pre-forking doesn't fix
 
